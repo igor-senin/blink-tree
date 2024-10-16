@@ -1,13 +1,20 @@
+#ifndef LOCKS_HPP
+#define LOCKS_HPP
+
 #include "node.hpp"
 
 #include <sys/mman.h>
 #include <fcntl.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 
 
 template <std::size_t KeysCount>
 bool RLockNode(int fd, off_t offset);
+
+template <std::size_t KeysCount>
+Node<KeysCount>* GetRaw(off_t offset, char* mapping);
 
 template <std::size_t KeysCount>
 Node<KeysCount>* RGetRawLocked(int fd, off_t offset, char* mapping);
@@ -17,6 +24,9 @@ void WLockNode(int fd, off_t offset);
 
 template <std::size_t KeysCount>
 void UnlockNode(int fd, off_t offset);
+
+template <std::size_t KeysCount>
+void RDispatchNode(int fd, off_t offset, char* mapping);
 
 
 /*
@@ -35,13 +45,21 @@ bool RLockNode(int fd, off_t offset) {
 }
 
 /*
+ *
+*/
+template <std::size_t KeysCount>
+Node<KeysCount>* GetRaw(off_t offset, char* mapping) {
+  return reinterpret_cast<Node<KeysCount>*>(mapping + offset);
+}
+
+/*
 *
 */
 template <std::size_t KeysCount>
 Node<KeysCount>* RGetRawLocked(int fd, off_t offset, char* mapping) {
   if (RLockNode<KeysCount>(fd, offset)) {
     // range is locked
-    return reinterpret_cast<Node<KeysCount>*>(mapping + offset);
+    return GetRaw<KeysCount>(offset, mapping);
   }
 
   // unlucky
@@ -86,3 +104,17 @@ void UnlockNode(int fd, off_t offset) {
   // TODO: error check
   (void)fcntl(fd, F_SETLKW, &flockstr);
 }
+
+/*
+*
+*/
+template <std::size_t KeysCount>
+void RDispatchNode(int fd, off_t offset, char* mapping, void* node) {
+  if (node == offset + mapping) {
+    UnlockNode<KeysCount>(fd, offset);
+  } else {
+    free(node);
+  }
+}
+
+#endif  // LOCKS_HPP

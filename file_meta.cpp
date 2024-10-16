@@ -60,7 +60,7 @@ void UnlockMeta(int fd) {
 }
 
 void DispatchMeta(int fd, char* mapping, void* meta) {
-  if ((void*)meta == mapping) {
+  if (meta == mapping) {
     UnlockMeta(fd);
   } else {
     free(meta);
