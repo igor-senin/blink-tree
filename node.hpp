@@ -20,8 +20,8 @@ private:
   using PtrType = off_t;
 
   // +1 for insertion in unsafe node
-  std::array<KeyType, KeysCount + 1> keys_;
-  std::array<PtrType, KeysCount + 1> ptrs_;
+  std::array<KeyType, 2 * KeysCount + 1> keys_;
+  std::array<PtrType, 2 * KeysCount + 1> ptrs_;
 
   std::size_t arr_size_{0};
 
@@ -37,6 +37,13 @@ private:
   // 0: Node is leaf
   // 1: Node is root
 
+  constexpr static std::size_t CSize = sizeof(keys_) + sizeof(ptrs_)
+    + sizeof(arr_size_) + sizeof(link_ptr_) + sizeof(level_) + sizeof(flags_);
+  constexpr static std::size_t PagesCount = (CSize - 1) / 4096 + 1;
+  constexpr static std::size_t PadSize = PagesCount * 4096;
+
+  char pad[PadSize];
+  
   constexpr static std::size_t kInfValue = std::numeric_limits<std::size_t>::max();
 
 public:

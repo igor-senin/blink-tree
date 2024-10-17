@@ -7,6 +7,8 @@
 struct FileMeta {
   off_t root_offset;
   size_t height;
+
+  char pad[4096 - sizeof(off_t) - sizeof(size_t)];
 } __attribute__((packed));
 
 
