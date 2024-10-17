@@ -29,9 +29,13 @@ FileMeta* GetMetaLocked(int fd, char* mapping) {
 
   size_t size = sizeof(FileMeta);
   void* meta = malloc(size);
+  if (meta == NULL) {
+    perror("malloc");
+    return nullptr;
+  }
   if (pread(fd, meta, size, 0) != size) {
-    // TODO: better error checks
     perror("pread");
+    free(meta);
     return nullptr;
   }
 

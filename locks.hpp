@@ -3,11 +3,13 @@
 
 #include "node.hpp"
 
-#include <sys/mman.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 
 
 template <std::size_t KeysCount>
@@ -24,6 +26,12 @@ void WLockNode(int fd, off_t offset);
 
 template <std::size_t KeysCount>
 void UnlockNode(int fd, off_t offset);
+
+template <std::size_t KeysCount>
+void PinNodeInRAM(Node<KeysCount>* node);
+
+template <std::size_t KeysCount>
+void UnpinNode(Node<KeysCount>* node);
 
 template <std::size_t KeysCount>
 void RDispatchNode(int fd, off_t offset, char* mapping);
@@ -66,7 +74,6 @@ Node<KeysCount>* RGetRawLocked(int fd, off_t offset, char* mapping) {
   size_t size = sizeof(Node<KeysCount>);
   void* node = malloc(size);
   if (pread(fd, node, size, offset) != size) {
-    // TODO: better error checks
     perror("pread");
     return nullptr;
   }
@@ -101,6 +108,28 @@ void UnlockNode(int fd, off_t offset) {
   };
 
   (void)fcntl(fd, F_SETLKW, &flockstr);
+}
+
+/*
+ *
+*/
+template <std::size_t KeysCount>
+void PinNodeInRAM(Node<KeysCount>* node) {
+  if (mlock(node, sizeof(*node)) == -1) {
+    perror("mlock");
+    exit(EXIT_FAILURE);
+  }
+}
+
+/*
+ *
+*/
+template <std::size_t KeysCount>
+void UnpinNode(Node<KeysCount>* node) {
+  if (munlock(node, sizeof(*node)) == -1) {
+    perror("munlock");
+    exit(EXIT_FAILURE);
+  }
 }
 
 /*

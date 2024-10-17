@@ -14,6 +14,7 @@
 #include "allocate_data.hpp"
 #include "file_meta.h"
 #include "locks.hpp"
+#include "memory_sync.h"
 #include "node.hpp"
 
 
@@ -51,6 +52,9 @@ private:
   void WLockNode(PtrType ptr);
   void UnlockNode(PtrType ptr);
 
+  void PinNodeInRAM(PtrType ptr);
+  void UnpinNode(PtrType ptr);
+
   void UpdateMappingIfNecessary(PtrType ptr);
   void UpdateMapping();
 
@@ -60,6 +64,8 @@ private:
   size_t mapping_size;
 
   constexpr static std::string_view path_ = "./test/database.bin";
+
+  static constexpr auto NodeSize = sizeof(Node<KeysCount>);
 };
 
 
@@ -137,8 +143,10 @@ void BLinkTree<KeysCount>::Insert(KeyType key, std::string_view record) {
 
   // DoInsertion:
   while (true) {
+    PinNodeInRAM(current_ptr);
     GetRaw(current_ptr)->Insert(key, record_ptr);
     if (GetRaw(current_ptr)->IsSafe()) [[likely]] {
+      UnpinNode(current_ptr);
       UnlockNode(current_ptr);
       break;
     }
@@ -152,13 +160,16 @@ void BLinkTree<KeysCount>::Insert(KeyType key, std::string_view record) {
         GetRaw(right_son_ptr), right_son_ptr,
         current_ptr
       );
-      // TODO:
-      // Flush:
-      // MSync(right_son_ptr);
-      // MSync(new_root_ptr);
-      // MSync(current_ptr);
-      // TODO: UpdateMeta;
+
+      MSync(GetRaw(right_son_ptr), NodeSize);
+      MSync(GetRaw(new_root_ptr), NodeSize);
+      UnpinNode(current_ptr);
+      MSync(GetRaw(current_ptr), NodeSize);
+
+      UpdateMeta(fd, mapping, new_root_ptr, GetRaw(new_root_ptr)->Level());
+
       UnlockNode(current_ptr);
+
       break;
     }
 
@@ -168,9 +179,9 @@ void BLinkTree<KeysCount>::Insert(KeyType key, std::string_view record) {
     key = GetRaw(new_node_ptr)->GetMinKey();
     record_ptr = new_node_ptr;
 
-    // TODO
-    // MSync(new_node);
-    // MSync(current);
+    MSync(GetRaw(new_node_ptr), NodeSize);
+    UnpinNode(current_ptr);
+    MSync(GetRaw(current_ptr), NodeSize);
 
     auto level = GetRaw(current_ptr)->Level();
 
@@ -347,10 +358,20 @@ inline void BLinkTree<KeysCount>::UnlockNode(PtrType ptr) {
 }
 
 
+template <std::size_t KeysCount>
+inline void BLinkTree<KeysCount>::PinNodeInRAM(PtrType ptr) {
+  PinNodeInRAM<KeysCount>(GetRaw(ptr));
+}
+
+template <std::size_t KeysCount>
+inline void BLinkTree<KeysCount>::UnpinNode(PtrType ptr) {
+  UnpinNode<KeysCount>(GetRaw(ptr));
+}
+
 
 template <std::size_t KeysCount>
 void BLinkTree<KeysCount>::UpdateMappingIfNecessary(PtrType ptr) {
-  if (ptr + sizeof(Node<KeysCount>) > mapping_size)
+  if (ptr + NodeSize > mapping_size)
     [[unlikely]] {
     UpdateMapping();
   }
