@@ -186,7 +186,7 @@ void Node<KeysCount>::RearrangeRoot(
   Rearrange(right_son, right_son_ptr); // split old root
 
   new_root->arr_size_ = 2;
-  new_root->link_ptr_ = nullptr;
+  new_root->link_ptr_ = 0;
   new_root->level_ = level_ + 1;
   new_root->flags_ = 0b10; // indicating non-leaf root
 
