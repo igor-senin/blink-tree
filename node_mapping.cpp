@@ -19,11 +19,11 @@ Node<KeysCount>* LoadRaw(int fd, off_t offset) {
 
 template <std::size_t KeysCount>
 void PinNode(Node<KeysCount>* node) {
-  mlock((void*)node, sizeof(*node));
+  mlock((char*)node, sizeof(*node));
 }
 
 
 template <std::size_t KeysCount>
 void UnpinNode(Node<KeysCount>* node) {
-  munlock((void*)node, sizeof(*node));
+  munlock((char*)node, sizeof(*node));
 }

@@ -1,12 +1,15 @@
-#include "file_meta.hpp"
+#include "file_meta.h"
 
-#include <sys/types.h>
-#include <sys/stat.h>
 #include <fcntl.h>
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <sys/mman.h>
 
 bool RLockMeta(int fd) {
   struct flock flockstr {
@@ -21,7 +24,7 @@ bool RLockMeta(int fd) {
 
 FileMeta* GetMetaLocked(int fd, char* mapping) {
   if (RLockMeta(fd)) {
-    return reinterpret_cast<FileMeta*>(mapping);
+    return (FileMeta*)mapping;
   }
 
   size_t size = sizeof(FileMeta);
@@ -35,7 +38,7 @@ FileMeta* GetMetaLocked(int fd, char* mapping) {
   return (FileMeta*)meta;
 }
 
-void WLockMeta(int fd) {
+void WLockMeta(int fd, char* mapping) {
   struct flock flockstr {
     .l_type = F_WRLCK,
     .l_whence = SEEK_SET,
@@ -43,11 +46,10 @@ void WLockMeta(int fd) {
     .l_len = sizeof(FileMeta)
   };
 
-  // TODO
   (void)fcntl(fd, F_SETLKW, &flockstr);
 }
 
-void UnlockMeta(int fd) {
+void UnlockMeta(int fd, char* mapping) {
   struct flock flockstr {
     .l_type = F_UNLCK,
     .l_whence = 0,
@@ -55,14 +57,37 @@ void UnlockMeta(int fd) {
     .l_len = sizeof(FileMeta)
   };
 
-  // TODO
   (void)fcntl(fd, F_SETLKW, &flockstr);
 }
 
 void DispatchMeta(int fd, char* mapping, void* meta) {
+  /* Either meta was locked via fcntl,
+   * or it was malloc'ed. */
   if (meta == mapping) {
     UnlockMeta(fd);
   } else {
     free(meta);
   }
+}
+
+void UpdateMeta(int fd, char* mapping, off_t new_root, size_t new_height) {
+  FileMeta new_meta {
+    .root_offset = new_root,
+    .height = new_height
+  };
+
+  /* WriteLock Meta first */
+  WLockMeta(fd, mapping);
+  /* Pin Meta in RAM */
+  mlock(mapping, sizeof(FileMeta));
+
+  memcpy(mapping, &new_meta, sizeof(FileMeta));
+
+  /* Unpin Meta from RAM */
+  munlock(mapping, sizeof(FileMeta));
+
+  /* Push Meta to disk */
+  msync(mapping, sizeof(FileMeta), MS_SYNC);
+
+  UnlockMeta(fd, mapping);
 }

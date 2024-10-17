@@ -85,7 +85,6 @@ void WLockNode(int fd, off_t offset) {
     .l_len = sizeof(Node<KeysCount>)
   };
 
-  // TODO: error check
   (void)fcntl(fd, F_SETLKW, &flockstr);
 }
 
@@ -101,7 +100,6 @@ void UnlockNode(int fd, off_t offset) {
     .l_len = sizeof(Node<KeysCount>)
   };
 
-  // TODO: error check
   (void)fcntl(fd, F_SETLKW, &flockstr);
 }
 

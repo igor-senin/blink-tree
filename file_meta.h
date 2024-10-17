@@ -20,4 +20,9 @@ void UnlockMeta(int fd);
 
 void DispatchMeta(int fd, char* mapping, void* meta);
 
+void UpdateMeta(int fd,
+                char* mapping,
+                off_t new_root,
+                size_t new_height);
+
 #endif  // FILE_META
