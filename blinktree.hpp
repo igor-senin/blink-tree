@@ -5,10 +5,11 @@
 #include <string_view>
 
 #include <fcntl.h>
+#include <stdio.h>
+#include <unistd.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/types.h>
-#include <unistd.h>
 
 #include "allocate_data.hpp"
 #include "file_meta.h"
@@ -33,12 +34,25 @@ public:
 
   FileMeta ReadMeta() const;
 
+  auto/*PtrType*/ GetRoot() const;
+
 private:
   auto/*PtrType*/ MoveRight(KeyType key, PtrType current_ptr);
 
   auto/*PtrType*/ UpdateDescend(KeyType key,
                                 std::stack<PtrType>& stack,
                                 std::uint32_t level);
+
+  Node<KeysCount>* GetRaw(PtrType ptr);
+
+  Node<KeysCount>* RGetRawLocked(PtrType ptr);
+  void RDispatchNode(PtrType ptr);
+
+  void WLockNode(PtrType ptr);
+  void UnlockNode(PtrType ptr);
+
+  void UpdateMappingIfNecessary(PtrType ptr);
+  void UpdateMapping();
 
 private:
   int fd;
@@ -106,17 +120,16 @@ void BLinkTree<KeysCount>::Insert(KeyType key, std::string_view record) {
   std::stack<PtrType> stack;
 
   PtrType current_ptr = UpdateDescend(key, stack, 0);
-  Node<KeysCount>* current = GetRaw<KeysCount>(current_ptr, mapping);
 
-  /* Now current[_ptr] is leaf;
+  /* Now current_ptr is leaf;
    * no locks being hold. */
 
   current_ptr = MoveRight(key, current_ptr);
 
   /* Note: current is under WriteLock now */
 
-  if (current->Contains(key)) {
-    UnlockNode<KeysCount>(fd, current_ptr);
+  if (GetRaw(current_ptr)->Contains(key)) {
+    UnlockNode(current_ptr);
     return;
   }
 
@@ -124,45 +137,44 @@ void BLinkTree<KeysCount>::Insert(KeyType key, std::string_view record) {
 
   // DoInsertion:
   while (true) {
-    current->Insert(key, record_ptr);
-    if (current->IsSafe()) {
-      UnlockNode<KeysCount>(fd, current_ptr);
+    GetRaw(current_ptr)->Insert(key, record_ptr);
+    if (GetRaw(current_ptr)->IsSafe()) [[likely]] {
+      UnlockNode(current_ptr);
       break;
     }
-    if (current->IsRoot()) {
+    if (GetRaw(current_ptr)->IsRoot()) {
       /* 'current' is root and unsafe.
        * Create 2 new nodes (new root and right son of new root). */
       PtrType new_root_ptr = AllocateNode<KeysCount>(fd);
       PtrType right_son_ptr = AllocateNode<KeysCount>(fd);
-      auto new_root = GetRaw<KeysCount>(new_root_ptr, mapping);
-      auto right_son = GetRaw<KeysCount>(right_son_ptr, mapping);
-      current->RearrangeRoot(new_root, new_root_ptr,
-                             right_son, right_son_ptr,
-                             current_ptr);
+      GetRaw(current_ptr)->RearrangeRoot(
+        GetRaw(new_root_ptr), new_root_ptr,
+        GetRaw(right_son_ptr), right_son_ptr,
+        current_ptr
+      );
       // TODO:
       // Flush:
       // MSync(right_son_ptr);
       // MSync(new_root_ptr);
       // MSync(current_ptr);
       // TODO: UpdateMeta;
-      UnlockNode<KeysCount>(fd, current_ptr);
+      UnlockNode(current_ptr);
       break;
     }
 
     PtrType new_node_ptr = AllocateNode<KeysCount>(fd);
-    Node<KeysCount>* new_node = GetRaw<KeysCount>(new_node_ptr, mapping);
-    current->Rearrange(new_node, new_node_ptr);
+    GetRaw(current_ptr)->Rearrange(GetRaw(new_node_ptr), new_node_ptr);
 
-    key = new_node->GetMinKey();
+    key = GetRaw(new_node_ptr)->GetMinKey();
     record_ptr = new_node_ptr;
 
     // TODO
     // MSync(new_node);
     // MSync(current);
 
-    auto level = current->Level();
+    auto level = GetRaw(current_ptr)->Level();
 
-    UnlockNode<KeysCount>(fd, current_ptr);
+    UnlockNode(current_ptr);
 
     if (stack.empty()) {
       /* Stack is empty, but 'current' isn't root.
@@ -175,10 +187,7 @@ void BLinkTree<KeysCount>::Insert(KeyType key, std::string_view record) {
     stack.pop();
 
     current_ptr = MoveRight(key, current_ptr);
-
     /* Note: current is under WriteLock now */
-
-    current = GetRaw<KeysCount>(current_ptr, mapping);
   }
 }
 
@@ -202,6 +211,25 @@ FileMeta BLinkTree<KeysCount>::ReadMeta() const {
 }
 
 
+
+/*
+ * GetRoot - get current tree root.
+ *
+ * Returns:
+ * @root: offset-pointer to root.
+*/
+template <std::size_t KeysCount>
+auto BLinkTree<KeysCount>::GetRoot() const {
+  FileMeta* meta = GetMetaLocked(fd, mapping);
+
+  PtrType root = meta->root_offset;
+
+  DispatchMeta(fd, mapping, meta);
+
+  return root;
+}
+
+
 /*
  * Private methods
 */
@@ -221,19 +249,16 @@ FileMeta BLinkTree<KeysCount>::ReadMeta() const {
 */
 template <std::size_t KeysCount>
 auto BLinkTree<KeysCount>::MoveRight(KeyType key, PtrType current_ptr) {
-  WLockNode<KeysCount>(fd, current_ptr);
-
-  Node<KeysCount>* current = GetRaw<KeysCount>(current_ptr, mapping);
+  WLockNode(current_ptr);
 
   while (true) {
-    auto tmp_ptr = current->ScanNodeFor(key);
-    if (tmp_ptr != current->LinkPointer()) {
+    auto tmp_ptr = GetRaw(current_ptr)->ScanNodeFor(key);
+    if (tmp_ptr != GetRaw(current_ptr)->LinkPointer()) {
       break;
     }
-    WLockNode<KeysCount>(fd, tmp_ptr);
-    UnlockNode<KeysCount>(fd, current_ptr);
+    WLockNode(tmp_ptr);
+    UnlockNode(current_ptr);
 
-    current = GetRaw<KeysCount>(tmp_ptr, mapping);
     current_ptr = tmp_ptr;
   }
 
@@ -265,26 +290,98 @@ auto BLinkTree<KeysCount>::UpdateDescend(
 
   assert(stack.empty() && "UpdateDescend: stack is not empty!");
 
-  FileMeta meta = ReadMeta();
-  PtrType current_ptr = meta.root_offset;
-  Node<KeysCount>* current = RGetRawLocked<KeysCount>(fd, current_ptr, mapping);
+  PtrType current_ptr = GetRoot();
+  Node<KeysCount>* current = RGetRawLocked(current_ptr);
 
   std::uint32_t current_level = current->Level();
 
   while (current_level != level && !current->IsLeaf()) {
-    auto tmp = current;
     auto tmp_ptr = current_ptr;
     current_ptr = current->ScanNodeFor(key);
-    if (current_ptr != tmp->LinkPointer()) {
+    if (current_ptr != GetRaw(tmp_ptr)->LinkPointer()) {
       stack.push(tmp_ptr);
     }
-    current = RGetRawLocked<KeysCount>(fd, current_ptr, mapping);
-    RDispatchNode<KeysCount>(fd, tmp_ptr, mapping, tmp);
+    current = RGetRawLocked(current_ptr);
+    RDispatchNode(tmp_ptr);
 
     current_level = current->Level();
   }
 
-  RDispatchNode<KeysCount>(fd, current_ptr, mapping);
+  RDispatchNode(current_ptr);
+
   return current_ptr;
+}
+
+
+
+template <std::size_t KeysCount>
+inline Node<KeysCount>* BLinkTree<KeysCount>::GetRaw(PtrType ptr) {
+  UpdateMappingIfNecessary(ptr);
+  return GetRaw<KeysCount>(ptr, mapping);
+}
+
+
+template <std::size_t KeysCount>
+inline Node<KeysCount>* BLinkTree<KeysCount>::RGetRawLocked(PtrType ptr) {
+  UpdateMappingIfNecessary(ptr);
+  return RGetRawLocked<KeysCount>(fd, ptr, mapping);
+}
+
+
+template <std::size_t KeysCount>
+inline void BLinkTree<KeysCount>::RDispatchNode(PtrType ptr) {
+  return RDispatchNode<KeysCount>(fd, ptr, mapping, GetRaw(ptr));
+}
+
+
+template <std::size_t KeysCount>
+inline void BLinkTree<KeysCount>::WLockNode(PtrType ptr) {
+  UpdateMappingIfNecessary(ptr);
+  WLockNode<KeysCount>(fd, ptr);
+}
+
+
+template <std::size_t KeysCount>
+inline void BLinkTree<KeysCount>::UnlockNode(PtrType ptr) {
+  UnlockNode<KeysCount>(fd, ptr);
+}
+
+
+
+template <std::size_t KeysCount>
+void BLinkTree<KeysCount>::UpdateMappingIfNecessary(PtrType ptr) {
+  if (ptr + sizeof(Node<KeysCount>) > mapping_size)
+    [[unlikely]] {
+    UpdateMapping();
+  }
+}
+
+
+template <std::size_t KeysCount>
+void BLinkTree<KeysCount>::UpdateMapping() {
+  struct stat statbuf;
+  if (fstat(fd, &statbuf))
+    [[unlikely]] {
+    perror("fstat");
+    exit(EXIT_FAILURE);
+  }
+  mapping =
+    (char*)mremap(
+      mapping,
+      mapping_size,
+      statbuf.st_size,
+      MREMAP_MAYMOVE
+    );
+  mapping_size = statbuf.st_size;
+  if (mapping == MAP_FAILED)
+    [[unlikely]] {
+    perror("mremap");
+    exit(EXIT_FAILURE);
+  }
+  if (madvise(mapping, mapping_size, MADV_RANDOM) == -1)
+    [[unlikely]] {
+    perror("madvise");
+    exit(EXIT_FAILURE);
+  }
 }
 
