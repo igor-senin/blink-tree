@@ -2,7 +2,6 @@
 #define NODE_HPP
 
 #include <algorithm>
-#include <array>
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
@@ -20,8 +19,8 @@ private:
   using PtrType = off_t;
 
   // +1 for insertion in unsafe node
-  std::array<KeyType, 2 * KeysCount + 1> keys_;
-  std::array<PtrType, 2 * KeysCount + 1> ptrs_;
+  KeyType keys_[2 * KeysCount + 1];
+  PtrType ptrs_[2 * KeysCount + 1];
 
   std::size_t arr_size_{0};
 
@@ -82,7 +81,7 @@ public:
 */
 template <std::size_t KeysCount>
 auto Node<KeysCount>::ScanNodeFor(KeyType key) const {
-  auto begin = keys_.begin();
+  auto begin = std::begin(keys_);
   auto end = begin + arr_size_;
   auto pos = std::upper_bound(begin, end, key);
 
@@ -97,12 +96,12 @@ auto Node<KeysCount>::ScanNodeFor(KeyType key) const {
 template <std::size_t KeysCount>
 void Node<KeysCount>::Insert(KeyType key, PtrType record_ptr) {
   /* Node MUST be under Write Lock */
-  auto begin = keys_.begin();
+  auto begin = std::begin(keys_);
   auto end = begin + arr_size_;
   auto pos = std::upper_bound(begin, end, key);
 
-  auto ptrs_begin = ptrs_.begin();
-  auto ptrs_end = ptrs_.begin() + arr_size_;
+  auto ptrs_begin = std::begin(ptrs_);
+  auto ptrs_end = ptrs_begin + arr_size_;
   auto ptrs_pos = ptrs_begin + (pos - begin);
   
   if (pos < end) {
@@ -128,14 +127,14 @@ void Node<KeysCount>::Rearrange(Node* new_node, PtrType new_node_ptr) {
    * [0, ..., KeysCount-1] -> this;
    * [KeysCount, ..., 2*KeysCount] -> new_node. */
   std::copy(
-    keys_.begin() + KeysCount,
-    keys_.end(),
-    new_node->keys_.begin()
+    std::begin(keys_) + KeysCount,
+    std::begin(keys_) + arr_size_,
+    std::begin(new_node->keys_)
   );
   std::copy(
-    ptrs_.begin() + KeysCount,
-    ptrs_.end(),
-    new_node->ptrs_.begin()
+    std::begin(ptrs_) + KeysCount,
+    std::begin(ptrs_) + arr_size_,
+    std::begin(new_node->ptrs_)
   );
 
   new_node->arr_size_ = KeysCount + 1;
@@ -181,7 +180,7 @@ void Node<KeysCount>::RearrangeRoot(
 */
 template <std::size_t KeysCount>
 bool Node<KeysCount>::Contains(KeyType key) const {
-  auto begin = keys_.begin();
+  auto begin = std::begin(keys_);
   auto end = begin + arr_size_;
   auto pos = std::lower_bound(begin, end, key);
 
