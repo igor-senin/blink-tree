@@ -69,7 +69,7 @@ private:
 
   constexpr static std::string_view path_ = "./test/database.bin";
 
-  static constexpr auto NodeSize = sizeof(Node<KeysCount>);
+  constexpr static auto NodeSize = sizeof(Node<KeysCount>);
 };
 
 
