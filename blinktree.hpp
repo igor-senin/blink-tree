@@ -31,7 +31,11 @@ public:
 
   ~BLinkTree();
 
+  auto/*PtrType*/ Search(KeyType key) const;
+
   void Insert(KeyType key, std::string_view record);
+
+  bool Remove(KeyType key);
 
   FileMeta ReadMeta() const;
 
@@ -110,6 +114,45 @@ BLinkTree<KeysCount>::~BLinkTree() {
   munmap(mapping, mapping_size);
 
   close(fd);
+}
+
+
+
+/*
+ * Search -
+ * search for key in tree.
+ *
+ * @key: key that being searched.
+ *
+ * Returns:
+ * @ptr: offset-pointer to record or 0 if not present.
+*/
+template <std::size_t KeysCount>
+auto BLinkTree<KeysCount>::Search(KeyType key) const {
+  PtrType current_ptr = GetRoot();
+  Node<KeysCount>* current = RGetRawLocked(current_ptr);
+
+  while (!current->IsLeaf()) {
+    auto tmp_ptr = current_ptr;
+    current_ptr = current->ScanNodeFor(key);
+    current = RGetRawLocked(current_ptr);
+    RDispatchNode(tmp_ptr);
+  }
+
+  while (!current->IsWithin(key)) {
+    auto tmp_ptr = current_ptr;
+    current_ptr = current->LinkPointer();
+    current = RGetRawLocked(current_ptr);
+    RDispatchNode(tmp_ptr);
+  }
+
+  PtrType res = current->Contains(key)
+    ? current->GetRecordByKey(key)
+    : 0;
+
+  RDispatchNode(current);
+
+  return res;
 }
 
 
@@ -200,6 +243,42 @@ void BLinkTree<KeysCount>::Insert(KeyType key, std::string_view record) {
     current_ptr = MoveRight(key, current_ptr);
     /* Note: current is under WriteLock now */
   }
+}
+
+
+
+/*
+ * Remove -
+ * record under 'key' from tree.
+ * Record counts as removed if pointer to it is 0.
+ *
+ * @key: key whose record should be removed.
+ *
+ * Returns:
+ * @bool: true if actually removed record.
+*/
+template <std::size_t KeysCount>
+bool BLinkTree<KeysCount>::Remove(KeyType key) {
+  PtrType current_ptr = GetRoot();
+  Node<KeysCount>* current = RGetRawLocked(current_ptr);
+
+  while (!current->IsLeaf()) {
+    auto tmp_ptr = current_ptr;
+    current_ptr = current->ScanNodeFor(key);
+    current = RGetRawLocked(current_ptr);
+    RDispatchNode(tmp_ptr);
+  }
+
+  RDispatchNode(current_ptr);
+
+  current_ptr = MoveRight(key, current_ptr);
+  /* 'current' is unser WriteLock now */
+
+  bool res = GetRaw(current_ptr)->Remove(key);
+
+  UnlockNode(current_ptr);
+
+  return res;
 }
 
 

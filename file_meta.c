@@ -85,6 +85,8 @@ void UpdateMeta(int fd, char* mapping, off_t new_root, size_t new_height) {
   /* Pin Meta in RAM */
   mlock(mapping, sizeof(FileMeta));
 
+  new_meta.order = ((FileMeta*)mapping)->order;
+
   memcpy(mapping, &new_meta, sizeof(FileMeta));
 
   /* Unpin Meta from RAM */

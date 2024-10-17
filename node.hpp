@@ -54,6 +54,7 @@ public:
 
   auto/*PtrType*/ ScanNodeFor(KeyType key) const;
   void Insert(KeyType key, PtrType record_ptr);
+  bool Remove(KeyType key);
 
   void Rearrange(Node* new_node, PtrType new_node_ptr);
   void RearrangeRoot(Node* new_root, PtrType new_root_ptr,
@@ -61,6 +62,8 @@ public:
                      PtrType current_ptr);
 
   bool Contains(KeyType key) const;
+  bool IsWithin(KeyType key) const;
+  auto/*PtrType*/ GetRecordByKey(KeyType key) const;
 
   auto/*KeyType*/ GetMaxKey() const;
   auto/*KeyType*/ GetMinKey() const;
@@ -113,6 +116,23 @@ void Node<KeysCount>::Insert(KeyType key, PtrType record_ptr) {
   *pos = key;
   *ptrs_pos = record_ptr;
   arr_size_++;
+}
+
+
+/*
+ *
+*/
+template <std::size_t KeysCount>
+bool Node<KeysCount>::Remove(KeyType key) {
+  auto begin = std::begin(keys_);
+  auto end = begin + arr_size_;
+  auto pos = std::lower_bound(begin, end, key);
+
+  if (pos != end && *pos == key) {
+    ptrs_[pos - begin] = 0;
+    return true;
+  }
+  return false;
 }
 
 
@@ -184,7 +204,30 @@ bool Node<KeysCount>::Contains(KeyType key) const {
   auto end = begin + arr_size_;
   auto pos = std::lower_bound(begin, end, key);
 
-  return pos != end && *pos == key;
+  return pos != end && *pos == key
+    && ptrs_[pos - begin] != 0;
+}
+
+
+/*
+ *
+*/
+template <std::size_t KeysCount>
+bool Node<KeysCount>::IsWithin(KeyType key) const {
+  return GetMinKey() <= key && key < GetMaxKey();
+}
+
+
+/*
+ *
+*/
+template <std::size_t KeysCount>
+auto Node<KeysCount>::GetRecordByKey(KeyType key) const {
+  auto begin = std::begin(keys_);
+  auto end = begin + arr_size_;
+  auto pos = std::upper_bound(begin, end, key);
+
+  return ptrs_[pos - begin];
 }
 
 template <std::size_t KeysCount>

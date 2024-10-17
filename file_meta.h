@@ -5,10 +5,11 @@
 #include <unistd.h>
 
 struct FileMeta {
-  off_t root_offset;
-  size_t height;
+  off_t root_offset; /* current root of tree; may be overwritten */
+  size_t height; /* current height of tree */
+  size_t order; /* 2*order is max number of elements in node */
 
-  char pad[4096 - sizeof(off_t) - sizeof(size_t)];
+  char pad[4096 - sizeof(root_offset) - sizeof(height) - sizeof(order)];
 } __attribute__((packed));
 
 
