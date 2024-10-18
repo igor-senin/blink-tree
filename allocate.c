@@ -1,12 +1,13 @@
 #include "allocate.h"
 
 #include <fcntl.h>
+#include <stdio.h>
 #include <unistd.h>
 #include <sys/types.h>
 
 
 off_t Allocate(int fd, const char* buf, off_t count) {
-  struct flock flockstr {
+  struct flock flockstr = {
     .l_type = F_WRLCK,
     .l_whence = SEEK_END,
     .l_start = 0,

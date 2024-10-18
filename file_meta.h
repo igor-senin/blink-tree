@@ -1,6 +1,7 @@
 #ifndef FILE_META
 #define FILE_META
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <unistd.h>
 
@@ -9,17 +10,17 @@ struct FileMeta {
   size_t height; /* current height of tree */
   size_t order; /* 2*order is max number of elements in node */
 
-  char pad[4096 - sizeof(root_offset) - sizeof(height) - sizeof(order)];
+  char pad[4096 - sizeof(off_t) - sizeof(size_t) - sizeof(size_t)];
 } __attribute__((packed));
 
 
 bool RLockMeta(int fd);
 
-FileMeta* GetMetaLocked(int fd, char* mapping);
+struct FileMeta* GetMetaLocked(int fd, char* mapping);
 
-void WLockMeta(int fd);
+void WLockMeta(int fd, char* mapping);
 
-void UnlockMeta(int fd);
+void UnlockMeta(int fd, char* mapping);
 
 void DispatchMeta(int fd, char* mapping, void* meta);
 

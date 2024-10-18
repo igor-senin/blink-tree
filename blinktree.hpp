@@ -1,8 +1,11 @@
+#ifndef BLINKTREE_HPP
+#define BLINKTREE_HPP
+
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <stack>
-#include <string_view>
+#include <string>
 
 #include <fcntl.h>
 #include <stdio.h>
@@ -27,7 +30,7 @@ private:
   using PtrType = off_t;
 
 public:
-  BLinkTree();
+  BLinkTree(std::string path);
 
   ~BLinkTree();
 
@@ -67,7 +70,7 @@ private:
   char* mapping;
   size_t mapping_size;
 
-  constexpr static std::string_view path_ = "./test/database.bin";
+  std::string path_;
 
   constexpr static auto NodeSize = sizeof(Node<KeysCount>);
 };
@@ -76,7 +79,7 @@ private:
 
 
 template <std::size_t KeysCount>
-BLinkTree<KeysCount>::BLinkTree() {
+BLinkTree<KeysCount>::BLinkTree(std::string path): path_{path} {
   fd = open(path_.data(), O_RDWR);
   if (fd < 0) {
     perror("open");
@@ -87,7 +90,8 @@ BLinkTree<KeysCount>::BLinkTree() {
     perror("fstat");
     exit(EXIT_FAILURE);
   }
-  mapping_size = statbuf.st_size;
+  // mapping_size = statbuf.st_size;
+  mapping_size = 10000000; // 10mln; костыль
   mapping =
     (char*)mmap(
       NULL,
@@ -106,7 +110,6 @@ BLinkTree<KeysCount>::BLinkTree() {
     exit(EXIT_FAILURE);
   }
 }
-
 
 
 template <std::size_t KeysCount>
@@ -343,7 +346,7 @@ auto BLinkTree<KeysCount>::MoveRight(KeyType key, PtrType current_ptr) {
 
   while (true) {
     auto tmp_ptr = GetRaw(current_ptr)->ScanNodeFor(key);
-    if (tmp_ptr != GetRaw(current_ptr)->LinkPointer()) {
+    if (tmp_ptr == 0 || tmp_ptr != GetRaw(current_ptr)->LinkPointer()) {
       break;
     }
     WLockNode(tmp_ptr);
@@ -407,44 +410,44 @@ auto BLinkTree<KeysCount>::UpdateDescend(
 template <std::size_t KeysCount>
 inline Node<KeysCount>* BLinkTree<KeysCount>::GetRaw(PtrType ptr) {
   UpdateMappingIfNecessary(ptr);
-  return GetRaw<KeysCount>(ptr, mapping);
+  return GlobalGetRaw<KeysCount>(ptr, mapping);
 }
 
 
 template <std::size_t KeysCount>
 inline Node<KeysCount>* BLinkTree<KeysCount>::RGetRawLocked(PtrType ptr) {
   UpdateMappingIfNecessary(ptr);
-  return RGetRawLocked<KeysCount>(fd, ptr, mapping);
+  return GlobalRGetRawLocked<KeysCount>(fd, ptr, mapping);
 }
 
 
 template <std::size_t KeysCount>
 inline void BLinkTree<KeysCount>::RDispatchNode(PtrType ptr) {
-  return RDispatchNode<KeysCount>(fd, ptr, mapping, GetRaw(ptr));
+  return GlobalRDispatchNode<KeysCount>(fd, ptr, mapping, GetRaw(ptr));
 }
 
 
 template <std::size_t KeysCount>
 inline void BLinkTree<KeysCount>::WLockNode(PtrType ptr) {
   UpdateMappingIfNecessary(ptr);
-  WLockNode<KeysCount>(fd, ptr);
+  GlobalWLockNode<KeysCount>(fd, ptr);
 }
 
 
 template <std::size_t KeysCount>
 inline void BLinkTree<KeysCount>::UnlockNode(PtrType ptr) {
-  UnlockNode<KeysCount>(fd, ptr);
+  GlobalUnlockNode<KeysCount>(fd, ptr);
 }
 
 
 template <std::size_t KeysCount>
 inline void BLinkTree<KeysCount>::PinNodeInRAM(PtrType ptr) {
-  PinNodeInRAM<KeysCount>(GetRaw(ptr));
+  GlobalPinNodeInRAM<KeysCount>(GetRaw(ptr));
 }
 
 template <std::size_t KeysCount>
 inline void BLinkTree<KeysCount>::UnpinNode(PtrType ptr) {
-  UnpinNode<KeysCount>(GetRaw(ptr));
+  GlobalUnpinNode<KeysCount>(GetRaw(ptr));
 }
 
 
@@ -472,12 +475,12 @@ void BLinkTree<KeysCount>::UpdateMapping() {
       statbuf.st_size,
       MREMAP_MAYMOVE
     );
-  mapping_size = statbuf.st_size;
   if (mapping == MAP_FAILED)
     [[unlikely]] {
     perror("mremap");
     exit(EXIT_FAILURE);
   }
+  mapping_size = statbuf.st_size;
   if (madvise(mapping, mapping_size, MADV_RANDOM) == -1)
     [[unlikely]] {
     perror("madvise");
@@ -485,3 +488,4 @@ void BLinkTree<KeysCount>::UpdateMapping() {
   }
 }
 
+#endif  // BLINKTREE_HPP

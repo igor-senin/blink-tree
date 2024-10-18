@@ -5,6 +5,7 @@
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
+#include <iostream>
 #include <limits>
 
 #include <sys/types.h>
@@ -39,7 +40,7 @@ private:
   constexpr static std::size_t CSize = sizeof(keys_) + sizeof(ptrs_)
     + sizeof(arr_size_) + sizeof(link_ptr_) + sizeof(level_) + sizeof(flags_);
   constexpr static std::size_t PagesCount = (CSize - 1) / 4096 + 1;
-  constexpr static std::size_t PadSize = PagesCount * 4096;
+  constexpr static std::size_t PadSize = PagesCount * 4096 - CSize;
 
   char pad[PadSize];
   
@@ -50,7 +51,9 @@ public:
   Node& operator=(const Node&) = default;
   Node(const Node&) = default;
 
-  ~Node();
+  ~Node() = default;
+
+  void InitRoot();
 
   auto/*PtrType*/ ScanNodeFor(KeyType key) const;
   void Insert(KeyType key, PtrType record_ptr);
@@ -76,7 +79,24 @@ public:
   auto/*PtrType*/ LinkPointer() const;
   std::uint32_t Level() const;
 
+  std::size_t Size() const;
+
+  void PrintAll() const;
+  auto/*PtrType*/ GetIthPtr(size_t i) const;
+
 };
+
+
+template <std::size_t KeysCount>
+void Node<KeysCount>::InitRoot() {
+  arr_size_ = 1;
+  keys_[0] = kInfValue;
+  ptrs_[0] = 0;
+
+  link_ptr_ = 0;
+  level_ = 0;
+  flags_ = 0b11;
+}
 
 
 /*
@@ -84,7 +104,7 @@ public:
 */
 template <std::size_t KeysCount>
 auto Node<KeysCount>::ScanNodeFor(KeyType key) const {
-  auto begin = std::begin(keys_);
+  auto begin = keys_;
   auto end = begin + arr_size_;
   auto pos = std::upper_bound(begin, end, key);
 
@@ -99,11 +119,11 @@ auto Node<KeysCount>::ScanNodeFor(KeyType key) const {
 template <std::size_t KeysCount>
 void Node<KeysCount>::Insert(KeyType key, PtrType record_ptr) {
   /* Node MUST be under Write Lock */
-  auto begin = std::begin(keys_);
+  auto begin = keys_;
   auto end = begin + arr_size_;
   auto pos = std::upper_bound(begin, end, key);
 
-  auto ptrs_begin = std::begin(ptrs_);
+  auto ptrs_begin = ptrs_;
   auto ptrs_end = ptrs_begin + arr_size_;
   auto ptrs_pos = ptrs_begin + (pos - begin);
   
@@ -124,7 +144,7 @@ void Node<KeysCount>::Insert(KeyType key, PtrType record_ptr) {
 */
 template <std::size_t KeysCount>
 bool Node<KeysCount>::Remove(KeyType key) {
-  auto begin = std::begin(keys_);
+  auto begin = keys_;
   auto end = begin + arr_size_;
   auto pos = std::lower_bound(begin, end, key);
 
@@ -147,14 +167,14 @@ void Node<KeysCount>::Rearrange(Node* new_node, PtrType new_node_ptr) {
    * [0, ..., KeysCount-1] -> this;
    * [KeysCount, ..., 2*KeysCount] -> new_node. */
   std::copy(
-    std::begin(keys_) + KeysCount,
-    std::begin(keys_) + arr_size_,
-    std::begin(new_node->keys_)
+    keys_ + KeysCount,
+    keys_ + arr_size_,
+    new_node->keys_
   );
   std::copy(
-    std::begin(ptrs_) + KeysCount,
-    std::begin(ptrs_) + arr_size_,
-    std::begin(new_node->ptrs_)
+    ptrs_ + KeysCount,
+    ptrs_ + arr_size_,
+    new_node->ptrs_
   );
 
   new_node->arr_size_ = KeysCount + 1;
@@ -190,8 +210,10 @@ void Node<KeysCount>::RearrangeRoot(
   new_root->level_ = level_ + 1;
   new_root->flags_ = 0b10; // indicating non-leaf root
 
-  new_root->keys_ = {right_son->GetMinKey(), kInfValue};
-  new_root->ptrs_ = {current_ptr, right_son_ptr};
+  new_root->keys_[0] = right_son->GetMinKey();
+  new_root->keys_[1] = kInfValue;
+  new_root->ptrs_[0] = current_ptr;
+  new_root->ptrs_[1] = right_son_ptr;
 }
 
 
@@ -200,7 +222,7 @@ void Node<KeysCount>::RearrangeRoot(
 */
 template <std::size_t KeysCount>
 bool Node<KeysCount>::Contains(KeyType key) const {
-  auto begin = std::begin(keys_);
+  auto begin = keys_;
   auto end = begin + arr_size_;
   auto pos = std::lower_bound(begin, end, key);
 
@@ -223,7 +245,7 @@ bool Node<KeysCount>::IsWithin(KeyType key) const {
 */
 template <std::size_t KeysCount>
 auto Node<KeysCount>::GetRecordByKey(KeyType key) const {
-  auto begin = std::begin(keys_);
+  auto begin = keys_;
   auto end = begin + arr_size_;
   auto pos = std::upper_bound(begin, end, key);
 
@@ -272,6 +294,23 @@ inline std::uint32_t Node<KeysCount>::Level() const {
   return level_;
 }
 
+template <std::size_t KeysCount>
+std::size_t Node<KeysCount>::Size() const {
+  return arr_size_;
+}
+
+template <std::size_t KeysCount>
+void Node<KeysCount>::PrintAll() const {
+  for (size_t i = 0; i < arr_size_; ++i) {
+    std::cout << "key = " << keys_[i]
+      << " ; offset = " << ptrs_[i] << "\n";
+  }
+}
+
+template <std::size_t KeysCount>
+auto Node<KeysCount>::GetIthPtr(size_t i) const {
+  return ptrs_[i];
+}
 
 // Node
 // Key: uint64_t

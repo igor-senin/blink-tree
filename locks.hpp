@@ -13,35 +13,35 @@
 
 
 template <std::size_t KeysCount>
-bool RLockNode(int fd, off_t offset);
+bool GlobalRLockNode(int fd, off_t offset);
 
 template <std::size_t KeysCount>
-Node<KeysCount>* GetRaw(off_t offset, char* mapping);
+Node<KeysCount>* GlobalGetRaw(off_t offset, char* mapping);
 
 template <std::size_t KeysCount>
-Node<KeysCount>* RGetRawLocked(int fd, off_t offset, char* mapping);
+Node<KeysCount>* GlobalRGetRawLocked(int fd, off_t offset, char* mapping);
 
 template <std::size_t KeysCount>
-void WLockNode(int fd, off_t offset);
+void GlobalWLockNode(int fd, off_t offset);
 
 template <std::size_t KeysCount>
-void UnlockNode(int fd, off_t offset);
+void GlobalUnlockNode(int fd, off_t offset);
 
 template <std::size_t KeysCount>
-void PinNodeInRAM(Node<KeysCount>* node);
+void GlobalPinNodeInRAM(Node<KeysCount>* node);
 
 template <std::size_t KeysCount>
-void UnpinNode(Node<KeysCount>* node);
+void GlobalUnpinNode(Node<KeysCount>* node);
 
 template <std::size_t KeysCount>
-void RDispatchNode(int fd, off_t offset, char* mapping);
+void GlobalRDispatchNode(int fd, off_t offset, char* mapping);
 
 
 /*
  * 
 */
 template <std::size_t KeysCount>
-bool RLockNode(int fd, off_t offset) {
+bool GlobalRLockNode(int fd, off_t offset) {
   struct flock flockstr {
     .l_type = F_RDLCK,
     .l_whence = SEEK_SET,
@@ -56,7 +56,7 @@ bool RLockNode(int fd, off_t offset) {
  *
 */
 template <std::size_t KeysCount>
-Node<KeysCount>* GetRaw(off_t offset, char* mapping) {
+Node<KeysCount>* GlobalGetRaw(off_t offset, char* mapping) {
   return reinterpret_cast<Node<KeysCount>*>(mapping + offset);
 }
 
@@ -64,10 +64,10 @@ Node<KeysCount>* GetRaw(off_t offset, char* mapping) {
 *
 */
 template <std::size_t KeysCount>
-Node<KeysCount>* RGetRawLocked(int fd, off_t offset, char* mapping) {
-  if (RLockNode<KeysCount>(fd, offset)) {
+Node<KeysCount>* GlobalRGetRawLocked(int fd, off_t offset, char* mapping) {
+  if (GlobalRLockNode<KeysCount>(fd, offset)) {
     // range is locked
-    return GetRaw<KeysCount>(offset, mapping);
+    return GlobalGetRaw<KeysCount>(offset, mapping);
   }
 
   // unlucky
@@ -77,14 +77,14 @@ Node<KeysCount>* RGetRawLocked(int fd, off_t offset, char* mapping) {
     perror("pread");
     return nullptr;
   }
-  return node;
+  return reinterpret_cast<Node<KeysCount>*>(node);
 }
 
 /*
 *
 */
 template <std::size_t KeysCount>
-void WLockNode(int fd, off_t offset) {
+void GlobalWLockNode(int fd, off_t offset) {
   struct flock flockstr {
     .l_type = F_WRLCK,
     .l_whence = SEEK_SET,
@@ -99,7 +99,7 @@ void WLockNode(int fd, off_t offset) {
 *
 */
 template <std::size_t KeysCount>
-void UnlockNode(int fd, off_t offset) {
+void GlobalUnlockNode(int fd, off_t offset) {
   struct flock flockstr {
     .l_type = F_UNLCK,
     .l_whence = SEEK_SET,
@@ -114,7 +114,7 @@ void UnlockNode(int fd, off_t offset) {
  *
 */
 template <std::size_t KeysCount>
-void PinNodeInRAM(Node<KeysCount>* node) {
+void GlobalPinNodeInRAM(Node<KeysCount>* node) {
   if (mlock(node, sizeof(*node)) == -1) {
     perror("mlock");
     exit(EXIT_FAILURE);
@@ -125,7 +125,7 @@ void PinNodeInRAM(Node<KeysCount>* node) {
  *
 */
 template <std::size_t KeysCount>
-void UnpinNode(Node<KeysCount>* node) {
+void GlobalUnpinNode(Node<KeysCount>* node) {
   if (munlock(node, sizeof(*node)) == -1) {
     perror("munlock");
     exit(EXIT_FAILURE);
@@ -136,9 +136,9 @@ void UnpinNode(Node<KeysCount>* node) {
 *
 */
 template <std::size_t KeysCount>
-void RDispatchNode(int fd, off_t offset, char* mapping, void* node) {
+void GlobalRDispatchNode(int fd, off_t offset, char* mapping, void* node) {
   if (node == offset + mapping) {
-    UnlockNode<KeysCount>(fd, offset);
+    GlobalUnlockNode<KeysCount>(fd, offset);
   } else {
     free(node);
   }

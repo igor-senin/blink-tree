@@ -4,7 +4,7 @@
 #include <stddef.h>
 #include <sys/mman.h>
 
-inline void MSync(char* addr, size_t len) {
+inline void MSync(void* addr, size_t len) {
   msync(addr, len, MS_SYNC);
 }
 

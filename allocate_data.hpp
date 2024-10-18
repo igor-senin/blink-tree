@@ -19,6 +19,8 @@ off_t AllocateRecord(int fd, std::string_view record);
 
 template <std::size_t KeysCount>
 off_t AllocateNode(int fd) {
+  // std::cout << "Allocate node: " << sizeof(Node<KeysCount>) << "\n";
+
   char buf[sizeof(Node<KeysCount>)] = {0};
 
   return Allocate(fd, buf, sizeof(Node<KeysCount>));
